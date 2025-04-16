@@ -1,141 +1,146 @@
-# RepoCoder: Repository-Level Code Completion Through Iterative Retrieval and Generation
+# RepoCoder Pipeline (Extended)
 
-# Overview
+This project is inspired by [Microsoft’s RepoCoder](https://github.com/microsoft/CodeT) — a retrieval-augmented framework for repository-level code completion.
 
-In the paper, we present **RepoCoder**, a simple, generic, and effective framework to tackle the repository-level code completion task, which is to continue writing the unfinished code based on a broader context of the repository. RepoCoder incorporates a similarity-based retriever, a pre-trained code language model, and a novel iterative retrieval-generation paradigm. It streamlines the overall process and eliminates the need for heuristic rules, static code analysis, data labeling, and model re-training in previous studies.
+> **Citation**  
+> If this project is useful, please consider citing the original RepoCoder paper:
+>
+> ```bibtex
+> @article{zhang2023repocoder,
+>   title={RepoCoder: Repository-Level Code Completion Through Iterative Retrieval and Generation},
+>   author={Zhang, Fengji and Chen, Bei and Zhang, Yue and Liu, Jin and Zan, Daoguang and Mao, Yi and Lou, Jian-Guang and Chen, Weizhu},
+>   journal={arXiv preprint arXiv:2303.12570},
+>   year={2023}
+> }
+> ```
 
-![framework](./figs/framework.png)
-<center>
-Figure 1. The illustration of our RepoCoder framework.
-</center>
+This extended version provides a modular, fully-automated pipeline for evaluating repository-level code completion with the RepoCoder methodology. The pipeline supports three key retrieval paradigms:
 
-We also present a new benchmark, **RepoEval**, for the repository-level code completion task, which consists of the latest and high-quality real-world repositories covering line, API invocation, and function body completion scenarios. We test the performance of RepoCoder and show that it significantly improves the zero-shot code completion baseline by over 10% and consistently outperforms the vanilla retrieval-augmented code completion approach.
+- **RG1 (Retrieve-and-Generate):** Uses top-k retrieval from the repository as context for completing a masked target.
+- **GT (Ground Truth):** Uses the oracle context centered around the target as a reference baseline.
+- **RG-RG (RepoCoder):** A second round of retrieval using model predictions inserted into the source to regenerate prompts and improve completions.
 
-## Project
+## Conceptual Overview
 
-This project contains the basic components of RepoCoder. Here is an overview:
+The goal is to evaluate how retrieval can enhance long-range code completion at the repository level. The process revolves around constructing and manipulating **context windows**—chunks of code extracted from repositories—which are later used to retrieve similar code segments and construct prompts for language models.
 
-```shell
-|-- make_window.py # slice the repository files and the model predictions into code snippets
-|-- build_vector.py # build the vector representation for the code snippets
-|-- search_code.py # search relevant code snippets with the vector representation
-|-- build_prompt.py # build the prompt with the unfinished code and the retrieved code snippets
-|-- run_pipeline.py # run the code completion pipeline
-|-- codegen_inference.py # an example script for using CodeGen to generate code completions
-|-- compute_score.py # evaluate the performance of the code completion
-|-- utils.py # utility functions
-|-- datasets/datasets.zip # the input data for the code completion task
-    |-- function_level_completion_4k_context_codex.test.jsonl
-    |-- function_level_completion_2k_context_codex.test.jsonl
-    |-- line_level_completion_4k_context_codex.test.jsonl
-    |-- line_level_completion_2k_context_codex.test.jsonl
-    |-- line_level_completion_2k_context_codegen.test.jsonl
-    |-- line_level_completion_1k_context_codegen.test.jsonl
-    |-- api_level_completion_4k_context_codex.test.jsonl
-    |-- api_level_completion_2k_context_codex.test.jsonl
-    |-- api_level_completion_2k_context_codegen.test.jsonl
-    |-- api_level_completion_1k_context_codegen.test.jsonl
-|-- repositories # the checkpoints of repositories used to build our benchmark
-    |-- function_level.zip 
-      |-- CarperAI_trlx
-      |-- lucidrains_imagen-pytorch
-      |-- deepmind_tracr
-      |-- leopard-ai_betty
-      |-- google_lightweight_mmm
-      |-- amazon-science_patchcore-inspection
-      |-- facebookresearch_omnivore
-      |-- maxhumber_redframes
-    |-- line_and_api_level.zip
-      |-- pytorch_rl
-      |-- opendilab_ACE
-      |-- google_vizier
-      |-- awslabs_fortuna
-      |-- huggingface_evaluate
-      |-- huggingface_diffusers
-      |-- nerfstudio-project_nerfstudio
-      |-- alibaba_FederatedScope
-```
+### Step 1: Repository Windowing
 
-We utilize a private library to handle the execution and evaluation of the function-level completion. Due to the license issue, we cannot release the code. However, we provide the data for the function-level completion task in `datasets/datasets.zip` and `repositories/function_level.zip`.
+To build a retrieval corpus, the pipeline first slices every Python file in each repository into **sliding context windows**. A window is a fixed number of lines (e.g., 20), sampled every few lines (e.g., every 2 lines). These windows are saved with metadata (file name, line numbers, etc.) and used as the searchable database for later retrieval.
 
-# Quickstart
+This windowing is performed **agnostic to any task**, purely to index the repo structure.
 
-## Prepare Environment
+Purpose:
 
-First, we should set up a python environment. This code base has been tested under python 3.8.
+- Create a dense, searchable corpus of code chunks for similarity retrieval.
+- Represent all possible surrounding contexts in the codebase.
+
+### Step 2: Vectorization
+
+Each context window is then converted into a **vector representation**. This repo supports:
+
+- **Bag-of-Words (1-gram)**: A simple token-based representation based on the number of unigrams.
+- (Future extensibility exists for embedding models like `text-embedding-ada-002`.)
+
+Purpose:
+
+- Translate raw code into a numerical format that allows similarity comparison.
+- Facilitate fast nearest-neighbor search during retrieval.
+
+These vectors are saved and reused for each retrieval strategy.
+
+### Step 3: Task-Based Windowing (RG1 and GT)
+
+A benchmark file (e.g., `short_api_benchmark`) defines **specific locations in the code** where a completion should be evaluated. For each location:
+
+- **RG1 (Retrieve-and-Generate)** extracts a one-sided window that ends at the target line. This simulates a real-world scenario where the model completes code after reading what came before.
+  
+- **GT (Ground Truth)** extracts a symmetric window centered on the target line, treating it as a reference for comparison. This reflects an ideal oracle context.
+
+Purpose:
+
+- RG1 serves as the **query** for retrieval.
+- GT serves as the **gold standard** for performance evaluation.
+
+These task-specific windows are later used to build prompts.
+
+### Step 4: Retrieval
+
+Using the vectorized task windows (from RG1 and GT), the pipeline performs **nearest-neighbor search** against the repository-wide window vectors.
+
+- Top-k similar code fragments are retrieved.
+- These fragments act as **in-context examples** for the prompt.
+
+Purpose:
+
+- Leverage structurally and semantically similar code as reference material for the model.
+- Emulate how developers might "look around the repo" for patterns.
+
+### Step 5: Prompt Construction
+
+The retrieved fragments are formatted as **commented code blocks** with file path annotations and included above the original prompt.
+
+A prompt typically looks like:
 
 ```bash
-conda create -n repocoder python=3.8
-conda activate repocoder
-pip install -r requirements.txt
+the below code fragment can be found in:
+utils.py
+--------------------------------------------------
+def load_json(file_path):
+with open(file_path) as f:
+return json.load(f)
+--------------------------------------------------
+Here is some code to complete...
 ```
 
-## Run the Code Completion
+- Length is constrained by model context size (e.g., 2048 tokens).
+- Multiple fragments are included if space allows.
 
-1. The `run_RG1_and_oracle_method` function in `run_pipeline.py` shows the process of building the prompts for vanilla retrieval-augmented generation (RG1) and the Oracle method. The generated prompts are listed in a .jsonl file, where each line contains the content in the following format:
+**Purpose:**
 
-```json
-{
-  "prompt": "...the retrieved code snippets and unfinished code...",
-  "metadata": {
-    "task_id": "repo_name/idx",
-    "ground_truth": "ground truth completion",
-    "fpath_tuple": ["path", "to", "target file"],
-    "context_start_lineno": 0,
-    "line_no": 10,
-  }
-}
+- Mimic few-shot examples using real repository context.
+- Improve generation by grounding the model in relevant patterns.
+
+### Step 6: Inference (External to This Pipeline)
+
+The `.jsonl` files of prompts are passed to a model such as **CodeGen**, **Codex**, or **GPT-4**.
+
+- The model generates completions conditioned on the prompt.
+- Output format should include the generated `choices` and match the benchmark structure.
+
+This step must be run separately using the model of your choice.
+
+### Step 7: Prediction-Based Retrieval (RepoCoder / RG-RG)
+
+This is the **key innovation** introduced by RepoCoder:
+
+- After inference, model predictions are inserted back into the source code at the original locations.
+- New context windows are sliced around these predictions.
+- These windows are vectorized and used to **re-run retrieval** and **rebuild prompts** (as in Steps 2–5).
+
+This "retrieve-then-generate-then-retrieve-again" loop allows the model to refine its completion by attending to **context that was not visible during the first generation**.
+
+Purpose:
+
+- Boost completion quality with second-stage retrieval tailored to the model's own prediction.
+- Simulate an iterative reasoning process.
+
+## Execution Flow in `run.py`
+
+The main driver script runs the following steps:
+
+```python
+make_repo_windows(...)            # Step 1: Build and vectorize full-repo sliding windows
+
+run_rg1_and_gt_stage(...)         # Step 2–5: Build RG1 and GT windows, retrieve, construct prompts
+
+run_repocoder_stage(...)          # Step 6–7: Insert predictions, re-vectorize, re-retrieve, rebuild prompts
 ```
 
-2. Then we can call the model to generate completions and organize the results in the following format:
+These steps output:
 
-```json
-{
-  "prompt": "...the retrieved code snippets and unfinished code...",
-  "choices": [{"text": "...generated completion without repeating the input prompt..."}],
-  "metadata": {}
-}
-```
+- Vector files (.pkl)
+- Retrieval results (.pkl)
+- Final prompts for inference (.jsonl)
 
-3. Next, we can evaluate the performance of the code completion with the `compute_score.py` script. The script will compute the Exact Match and Edit Similarity scores.
-
-4. After that, we can use the `run_RepoCoder_method` function in `run_pipeline.py` to run a second iteration of retrieval-generation, which is our proposed RepoCoder approach, using the prediction file of RG1. And finally, we can evaluate the performance of RepoCoder as introduced in Step 3.
-
-# Citation
-
-If our work is useful, please consider citing our paper:
-
-```bibtex
-@article{zhang2023repocoder,
-  title={RepoCoder: Repository-Level Code Completion Through Iterative Retrieval and Generation},
-  author={Zhang, Fengji and Chen, Bei and Zhang, Yue and Liu, Jin and Zan, Daoguang and Mao, Yi and Lou, Jian-Guang and Chen, Weizhu},
-  journal={arXiv preprint arXiv:2303.12570},
-  year={2023}
-}
-```
-
-# Contributing
-
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
-Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
-the rights to use your contribution. For details, visit <https://cla.opensource.microsoft.com>.
-
-When you submit a pull request, a CLA bot will automatically determine whether you need to provide
-a CLA and decorate the PR appropriately (e.g., status check, comment). Simply follow the instructions
-provided by the bot. You will only need to do this once across all repos using our CLA.
-
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
-contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
-
-# License
-
-Please note that this repo is under [MIT License](LICENSE).
-
-# Trademarks
-
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
-trademarks or logos is subject to and must follow
-[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
-Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
-Any use of third-party trademarks or logos are subject to those third-party's policies.
+From there, evaluation proceeds by running completions and scoring them against ground truth.
