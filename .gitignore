@@ -1,0 +1,11 @@
+__pycache__/
+datasets/
+repositories/
+cache/
+prompts/
+
+.python-version
+.vscode
+.DS_Store
+
+test.ipynb

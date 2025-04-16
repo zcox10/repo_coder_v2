@@ -1,0 +1,8 @@
+tiktoken==0.1.2
+transformers==4.24.0
+editdistance==0.6.2
+scipy==1.15.2
+torch==2.6.0
+tensorflow==2.19.0
+ipdb==0.13.13
+ipykernel==6.29.5
