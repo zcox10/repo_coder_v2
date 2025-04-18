@@ -3,7 +3,6 @@
 This project is inspired by [Microsoft’s RepoCoder](https://github.com/microsoft/CodeT) — a retrieval-augmented framework for repository-level code completion.
 
 > **Citation**  
-> If this project is useful, please consider citing the original RepoCoder paper:
 >
 > ```bibtex
 > @article{zhang2023repocoder,
