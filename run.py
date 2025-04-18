@@ -23,6 +23,7 @@ from src.pipelines.prompting import (
     build_prompts_for_baseline_and_ground,
     build_prompts_for_predictions,
 )
+from src.pipelines.predictions import build_predictions
 
 
 def run_repo_stage(
@@ -65,18 +66,19 @@ def run_repocoder_stage(
     """
     Runs the full pipeline for the RepoCoder-style method (prediction-based generation).
     """
-    make_prediction_windows(
-        benchmark, base_dir, repos, window_sizes, slice_sizes, mode, prediction_path_template
-    )
-    vectorize_prediction_windows(
-        benchmark, repos, window_sizes, slice_sizes, mode, prediction_path_template
-    )
-    search_predictions(
-        benchmark, repos, window_sizes, slice_sizes, mode, prediction_path_template, vector_type
-    )
-    build_prompts_for_predictions(
-        benchmark, repos, window_sizes, slice_sizes, mode, prediction_path_template, vector_type
-    )
+    build_predictions()
+    # make_prediction_windows(
+    #     benchmark, base_dir, repos, window_sizes, slice_sizes, mode, prediction_path_template
+    # )
+    # vectorize_prediction_windows(
+    #     benchmark, repos, window_sizes, slice_sizes, mode, prediction_path_template
+    # )
+    # search_predictions(
+    #     benchmark, repos, window_sizes, slice_sizes, mode, prediction_path_template, vector_type
+    # )
+    # build_prompts_for_predictions(
+    #     benchmark, repos, window_sizes, slice_sizes, mode, prediction_path_template, vector_type
+    # )
 
 
 if __name__ == "__main__":
@@ -100,8 +102,8 @@ if __name__ == "__main__":
         "data/predictions/rg-one-gram-ws-{window_size}-ss-{slice_size}_samples.0.jsonl"
     )
 
-    run_repo_stage(Constants.base_repos_dir, repos, window_sizes, slice_sizes)
-    run_rg1_and_gt_stage(benchmark, Constants.base_repos_dir, repos, window_sizes, slice_sizes)
+    # run_repo_stage(Constants.base_repos_dir, repos, window_sizes, slice_sizes)
+    # run_rg1_and_gt_stage(benchmark, Constants.base_repos_dir, repos, window_sizes, slice_sizes)
     run_repocoder_stage(
         benchmark, Constants.base_repos_dir, repos, window_sizes, slice_sizes, prediction_path
     )

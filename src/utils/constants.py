@@ -24,6 +24,7 @@ class Constants:
     base_repos_dir: str = "data/repositories"
     base_datasets_dir: str = "data/datasets"
     base_cache_windows_dir: str = "data/cache/window"
+    base_predictions_dir = "data/predictions"
 
     # TODO: fix this path
     repo_base_dir: str = "data/repositories/line_and_api_level"
